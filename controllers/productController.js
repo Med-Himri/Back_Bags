@@ -243,6 +243,123 @@ exports.acceptProductCtrl = async (req, res) => {
   }
 };
 
+/* ================= GET PRODUCT BY ID (ADMIN — no accepted filter) ================= */
+// @route GET /api/product/admin/:id
+// Used by the edit-product CMS screen, which needs to load a product
+// regardless of its approval status.
+exports.getProductByIdCtrl = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const product = await Product.findById(id);
+
+    if (!product) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+
+    res.status(200).json(product);
+  } catch (error) {
+    console.error("Error fetching product by id:", error);
+    res.status(500).json({ message: "Internal Server Error", error });
+  }
+};
+
+/* ================= UPDATE PRODUCT (ADMIN / STAFF) ================= */
+// @route POST /api/product/updateproduct
+// Follows the same id-in-body pattern as acceptProductCtrl/rejectProductCtrl,
+// rather than a RESTful PATCH /:id — kept consistent with the rest of this API.
+exports.updateProductCtrl = async (req, res) => {
+  const {
+    id,
+    title,
+    slug,
+    price,
+    discountPrice,
+    sku,
+    stock,
+    variants,
+    category,
+    tags,
+    brand,
+    shortDescription,
+    metaTitle,
+    metaDescription,
+    description,
+  } = req.body;
+
+  const user = req.id;
+  const files = req.files;
+
+  try {
+    const staff = await User.findById(user);
+    if (!staff) {
+      return res
+        .status(403)
+        .json({ message: "Access denied. Staff or admin only." });
+    }
+
+    if (!id) {
+      return res.status(400).json({ message: "Product id is required" });
+    }
+
+    const product = await Product.findById(id);
+    if (!product) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+
+    // Replace the main image only if a new one was uploaded
+    if (files?.mainImage) {
+      const uploaded = await cloudinaryUploadImage(files.mainImage[0].path);
+      product.mainImage = { url: uploaded.secure_url, publicId: uploaded.public_id };
+    }
+
+    // Append any newly uploaded gallery images (existing ones stay untouched)
+    if (files?.gallery && files.gallery.length > 0) {
+      for (const img of files.gallery) {
+        const uploaded = await cloudinaryUploadImage(img.path);
+        product.gallery.push({ url: uploaded.secure_url, publicId: uploaded.public_id });
+      }
+    }
+
+    // Parse variants if sent as a JSON string (same pattern as create)
+    if (variants !== undefined) {
+      try {
+        product.variants =
+          typeof variants === "string" ? JSON.parse(variants) : variants;
+      } catch (err) {
+        console.error("Error parsing variants:", err);
+      }
+    }
+
+    // Only overwrite fields that were actually sent — lets the frontend
+    // send a partial update without wiping other fields to blank
+    if (title !== undefined) product.title = title;
+    if (slug !== undefined) product.slug = slug;
+    if (price !== undefined) product.price = price;
+    if (discountPrice !== undefined) product.discountPrice = discountPrice;
+    if (sku !== undefined) product.sku = sku;
+    if (stock !== undefined) product.stock = stock;
+    if (category !== undefined) product.category = category;
+    if (tags !== undefined) {
+      product.tags =
+        typeof tags === "string"
+          ? tags.split(",").map((t) => t.trim()).filter(Boolean)
+          : tags;
+    }
+    if (brand !== undefined) product.brand = brand;
+    if (shortDescription !== undefined) product.shortDescription = shortDescription;
+    if (metaTitle !== undefined) product.metaTitle = metaTitle;
+    if (metaDescription !== undefined) product.metaDescription = metaDescription;
+    if (description !== undefined) product.description = description;
+
+    await product.save();
+
+    res.status(200).json({ message: "Product updated successfully", product });
+  } catch (error) {
+    console.error("Error updating product:", error);
+    res.status(500).json({ message: "Error updating product", error });
+  }
+};
+
 exports.createAIProductCtrl = async (req, res) => {
   const { productName, price, discountPrice, galleryMeta } = req.body;
   const user = req.id; // or req.user._id depending on your auth middleware
@@ -296,6 +413,7 @@ exports.createAIProductCtrl = async (req, res) => {
 
     You MUST return ONLY a valid JSON object. Ensure all HTML inside the "description" value is properly string-escaped (e.g., escape double quotes inside HTML tags like <table class=\\"details\\">) to prevent JSON parsing errors. Use the following strict structure:
     {
+      "title": "Corrected and elegant product title",
       "slug": "url-friendly-slug-for-the-title",
       "description": "The full HTML formatted product description here",
       "shortDescription": "Catchy 1-2 sentence short description (max 150 chars)",
