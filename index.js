@@ -4,7 +4,7 @@ const connectDB = require("./config/config");
 const app = express();
 const cors = require("cors");
 
-const allowedOrigins = ["http://localhost:3000","https://zackluxury.vercel.app","https://www.zackluxury.com","https://zackluxury.com"];
+const allowedOrigins = ["http://localhost:3000","https://front-bags.vercel.app/","https://www.zackluxury.com","https://zackluxury.com"];
 //
 const corsOptions = {
   origin: function (origin, callback) {
