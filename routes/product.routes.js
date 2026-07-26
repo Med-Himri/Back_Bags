@@ -39,7 +39,7 @@ router.post(
   "/createaiproduct",
   upload.fields([
     { name: "mainImage", maxCount: 1 },
-    { name: "gallery", maxCount: 10 },
+    { name: "galleryImages", maxCount: 10 }, // was "gallery" — didn't match createAIProductAPI or createAIProductCtrl, which both use galleryImages
   ]),
   createAIProductCtrl
 );
