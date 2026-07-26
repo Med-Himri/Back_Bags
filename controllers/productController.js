@@ -450,6 +450,14 @@ exports.createAIProductCtrl = async (req, res) => {
           // and it was text-only anyway. qwen/qwen3.6-27b is Groq's current
           // vision-capable model — it can see the actual product photo.
           model: "qwen/qwen3.6-27b",
+          // This model has a "thinking" mode that was interfering with JSON
+          // mode (thinking content mixed into the output, breaking JSON.parse).
+          // "none" skips the reasoning step entirely — appropriate here since
+          // this is straightforward classification/copywriting, not math or
+          // complex multi-step logic. reasoning_format: "hidden" is a backup
+          // that strips any reasoning text even if some gets generated.
+          reasoning_effort: "none",
+          reasoning_format: "hidden",
           messages: [
             { role: "system", content: systemPrompt },
             {
@@ -483,7 +491,24 @@ exports.createAIProductCtrl = async (req, res) => {
     }
 
     const responseText = data.choices[0].message.content;
-    const aiData = JSON.parse(responseText);
+
+    // Defensive parsing: qwen3.6-27b has a "thinking" mode and can sometimes
+    // wrap the JSON with reasoning text (e.g. <think>...</think>) even in
+    // JSON mode. Extract just the {...} block before parsing.
+    let aiData;
+    try {
+      aiData = JSON.parse(responseText);
+    } catch (parseErr) {
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        console.error("Could not extract JSON from AI response:", responseText);
+        return res.status(500).json({
+          message: "AI response was not valid JSON",
+          error: parseErr.message,
+        });
+      }
+      aiData = JSON.parse(jsonMatch[0]);
+    }
 
     // Parsing Gallery Meta
     let parsedGalleryMeta = [];
