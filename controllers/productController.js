@@ -377,6 +377,12 @@ exports.createAIProductCtrl = async (req, res) => {
       });
     }
 
+    // Upload the main image FIRST — we need its hosted URL to send to the
+    // vision model. Previously the AI call happened before this upload,
+    // which only "worked" because the model never actually looked at the
+    // image at all (it was text-only).
+    const uploadedMainImage = await cloudinaryUploadImage(mainImageFile.path);
+
     // Pull recent products for internal linking (SEO cross-sell)
     const recentProducts = await Product.find()
       .sort({ createdAt: -1 })
@@ -393,12 +399,19 @@ exports.createAIProductCtrl = async (req, res) => {
         : "";
 
     const systemPrompt = `
-    You are an expert eCommerce copywriter and SEO specialist for "Zack Luxury", a premium B2C boutique selling women's handbags and accessories.
-    Your task is to write highly converting, beautifully structured, and descriptive product details based on the provided product name and context.
+    You are an expert eCommerce copywriter and SEO specialist for "Zack Luxury", a premium B2C boutique selling women's fashion products — including handbags, shoes, wallets, and accessories.
+    You will be shown a product photo. Base your category, tags, and description on what the image ACTUALLY shows — do not assume or default to any single category.
+
+    CATEGORY & VISUAL ANALYSIS REQUIREMENTS:
+    - Look at the image carefully before deciding on a category. Common categories: Handbags, Totes, Clutches, Wallets, Heels, Flats, Sandals, Boots, Sneakers, Jewelry, Scarves, Sunglasses, Belts.
+    - If the image shows a SINGLE product type, return that one category (e.g., "Heels").
+    - If the image shows a genuine MIX of two product types in the same shot (e.g., a bag styled next to shoes), return both separated by " & " (e.g., "Handbags & Heels") — only do this when the image truly contains multiple distinct product types, not just one product with multiple parts (a shoe with a heel is still just "Heels", not two categories).
+    - Never default to "Handbags" out of habit — pick whatever the photo actually shows.
+    - Tags should reflect what's visually true: material/finish visible in the photo (e.g., "patent leather", "suede"), color, style (e.g., "pointed-toe", "block-heel", "top-handle"), and use case.
 
     CONTENT & SEO REQUIREMENTS:
     - Slug Quality: Mentally correct any spelling or grammatical errors in the provided product name before basing the slug on it — the slug should read clean and professional even if the input name has typos.
-    - Focus Keyword Integration: You MUST naturally weave a relevant phrase like "premium women's handbag" or "luxury accessories" into the description, along with LSI keywords related to the specific product (e.g., leather goods, everyday carry, evening bag, gifting).
+    - Focus Keyword Integration: You MUST naturally weave a relevant phrase describing the ACTUAL product category (e.g., "premium women's handbag" for a bag, "elegant women's heels" for shoes, "statement accessory" for jewelry) into the description — match the phrase to what the product genuinely is, along with LSI keywords related to the specific product (e.g., leather goods, everyday carry, evening bag for a bag; comfort fit, pointed-toe, block heel for shoes).
     - Tone & Audience: Write specifically for the retail consumer (fashion-conscious women, gift shoppers). STRICTLY AVOID B2B terminology like "wholesale", "bulk", "export", or "commercial accounts".
     - Accuracy: Do NOT claim the product is handmade, artisanal, or one-of-a-kind unless that is explicitly true for this item — describe materials and craftsmanship in general, honest terms instead.
     - HTML Description: Write a rich, persuasive, and detailed product description in valid HTML.
@@ -413,13 +426,12 @@ exports.createAIProductCtrl = async (req, res) => {
 
     You MUST return ONLY a valid JSON object. Ensure all HTML inside the "description" value is properly string-escaped (e.g., escape double quotes inside HTML tags like <table class=\\"details\\">) to prevent JSON parsing errors. Use the following strict structure:
     {
-      "title": "Corrected and elegant product title",
       "slug": "url-friendly-slug-for-the-title",
       "description": "The full HTML formatted product description here",
       "shortDescription": "Catchy 1-2 sentence short description (max 150 chars)",
       "metaTitle": "SEO optimized meta title (max 60 chars)",
       "metaDescription": "SEO optimized meta description (max 160 chars)",
-      "category": "Suggested Category (e.g., Handbags, Totes, Clutches, Wallets, Accessories)",
+      "category": "The single most accurate category based on what the IMAGE actually shows (see category rules above)",
       "tags": ["tag1", "tag2", "tag3", "tag4"]
     }
   `;
@@ -434,12 +446,24 @@ exports.createAIProductCtrl = async (req, res) => {
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
+          // llama-3.3-70b-versatile was deprecated by Groq on June 17, 2026,
+          // and it was text-only anyway. qwen/qwen3.6-27b is Groq's current
+          // vision-capable model — it can see the actual product photo.
+          model: "qwen/qwen3.6-27b",
           messages: [
             { role: "system", content: systemPrompt },
             {
               role: "user",
-              content: `The product name provided by the user is: "${productName}"`,
+              content: [
+                {
+                  type: "text",
+                  text: `The product name provided by the user is: "${productName}". Look at the attached photo and base the category, tags, and description on what it actually shows.`,
+                },
+                {
+                  type: "image_url",
+                  image_url: { url: uploadedMainImage.secure_url },
+                },
+              ],
             },
           ],
           response_format: { type: "json_object" },
@@ -470,9 +494,6 @@ exports.createAIProductCtrl = async (req, res) => {
         console.error("Error parsing galleryMeta:", err);
       }
     }
-
-    // Upload Main Image to Cloudinary
-    const uploadedMainImage = await cloudinaryUploadImage(mainImageFile.path);
 
     // Upload Gallery Images to Cloudinary
     let uploadedGallery = [];
