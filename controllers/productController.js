@@ -397,7 +397,7 @@ exports.createAIProductCtrl = async (req, res) => {
     Your task is to write highly converting, beautifully structured, and descriptive product details based on the provided product name and context.
 
     CONTENT & SEO REQUIREMENTS:
-    - Title Correction: Correct any spelling or grammatical errors in the product name naturally. Use this for the title and slug.
+    - Slug Quality: Mentally correct any spelling or grammatical errors in the provided product name before basing the slug on it — the slug should read clean and professional even if the input name has typos.
     - Focus Keyword Integration: You MUST naturally weave a relevant phrase like "premium women's handbag" or "luxury accessories" into the description, along with LSI keywords related to the specific product (e.g., leather goods, everyday carry, evening bag, gifting).
     - Tone & Audience: Write specifically for the retail consumer (fashion-conscious women, gift shoppers). STRICTLY AVOID B2B terminology like "wholesale", "bulk", "export", or "commercial accounts".
     - Accuracy: Do NOT claim the product is handmade, artisanal, or one-of-a-kind unless that is explicitly true for this item — describe materials and craftsmanship in general, honest terms instead.
@@ -485,13 +485,13 @@ exports.createAIProductCtrl = async (req, res) => {
       uploadedGallery = results.map((result, i) => ({
         url: result.secure_url,
         publicId: result.public_id,
-        alt: parsedGalleryMeta[i]?.alt || aiData.title,
+        alt: parsedGalleryMeta[i]?.alt || productName,
       }));
     }
 
     // Create the Product in MongoDB
     const newProduct = await Product.create({
-      title: aiData.title || productName,
+      title: productName, // title is written by you, not AI-generated
       slug: aiData.slug,
       description: aiData.description,
       shortDescription: aiData.shortDescription,
